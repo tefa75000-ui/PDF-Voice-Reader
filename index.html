@@ -3,86 +3,108 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDF Voice Reader</title>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
 <style>
 body {
-  background:#101827;
-  color:white;
-  font-family:Arial;
-  padding:15px;
+  font-family: Arial, sans-serif;
+  background: #f1f4f9;
+  margin: 0;
+  padding: 15px;
 }
-h1 {text-align:center;color:#55d6a5}
-.box {
-  background:#1e293b;
-  padding:16px;
-  margin:14px auto;
-  border-radius:14px;
-  max-width:600px;
+.container {
+  max-width: 650px;
+  margin: auto;
+  background: white;
+  padding: 20px;
+  border-radius: 15px;
 }
-button,input,select {
-  width:100%;
-  box-sizing:border-box;
-  padding:13px;
-  margin:7px 0;
-  border:0;
-  border-radius:9px;
-  font-size:16px;
+h1 {
+  text-align: center;
+  color: #2457a7;
+}
+button, select, input {
+  width: 100%;
+  padding: 12px;
+  margin: 7px 0;
+  box-sizing: border-box;
+  font-size: 16px;
 }
 button {
-  background:#16a879;
-  color:white;
-  font-weight:bold;
+  background: #2457a7;
+  color: white;
+  border: none;
+  border-radius: 8px;
 }
 textarea {
-  width:100%;
-  height:220px;
-  box-sizing:border-box;
-  padding:12px;
-  font-size:17px;
-  border-radius:9px;
+  width: 100%;
+  height: 220px;
+  padding: 12px;
+  box-sizing: border-box;
+  font-size: 18px;
+  line-height: 1.8;
+  direction: auto;
+  text-align: start;
 }
-#status {color:#55d6a5}
+.info {
+  background: #eef3fc;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 10px 0;
+}
 </style>
 </head>
+
 <body>
+<div class="container">
 
-<h1>📖 قارئ PDF الصوتي</h1>
-<p style="text-align:center">العربية والإنجليزية</p>
+<h1>📖 PDF Voice Reader</h1>
+<p style="text-align:center">قارئ الكتب الصوتي</p>
 
-<div class="box">
-<h3>📂 اختر ملف PDF</h3>
+<label>لغة الواجهة:</label>
+<select id="interfaceLanguage">
+<option value="ar">العربية</option>
+<option value="en">English</option>
+</select>
+
+<label>اختر ملف PDF:</label>
 <input type="file" id="file" accept=".pdf,application/pdf">
-<p id="status">لم يتم اختيار ملف بعد</p>
-</div>
 
-<div class="box">
-<h3>📄 صفحات الكتاب</h3>
+<div class="info">
 <button id="previous">الصفحة السابقة</button>
-<p id="pageInfo">لا يوجد ملف</p>
+<p id="pageInfo">لم يتم اختيار ملف</p>
 <button id="next">الصفحة التالية</button>
 </div>
 
-<div class="box">
-<h3>📝 النص المستخرج</h3>
-<textarea id="text" placeholder="سيظهر نص الصفحة هنا"></textarea>
+<div class="info">
+<button id="extract">استخراج النص العادي</button>
+<button id="ocr">استخراج النص من الصور OCR</button>
+<p id="ocrStatus">جاهز</p>
 </div>
 
-<div class="box">
-<h3>🌍 لغة القراءة</h3>
-<select id="lang">
+<label>النص المستخرج:</label>
+<textarea id="text" placeholder="سيظهر النص هنا..."></textarea>
+
+<label>لغة القراءة:</label>
+<select id="language">
 <option value="ar-SA">العربية</option>
 <option value="en-US">English</option>
 </select>
 
-<h3>سرعة القراءة</h3>
-<input type="range" id="speed" min="0.6" max="2" step="0.1" value="1">
+<label>سرعة القراءة:</label>
+<input type="range" id="speed" min="0.6" max="1.5" step="0.1" value="1">
 
-<button id="read">▶️ ابدأ القراءة</button>
+<button id="read">🔊 ابدأ القراءة</button>
 <button id="pause">⏸ إيقاف مؤقت</button>
-<button id="resume">▶️ استكمال</button>
-<button id="stop">⏹ إيقاف</button>
+<button id="resume">▶ استكمال القراءة</button>
+<button id="stop">⏹ إيقاف القراءة</button>
+
+<p id="status">جاهز</p>
+
 </div>
 
 <script>
@@ -91,108 +113,197 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 let pdf = null;
 let page = 1;
+let ocrWorker = null;
 
-const file = document.getElementById('file');
-const text = document.getElementById('text');
+const textBox = document.getElementById('text');
 const status = document.getElementById('status');
-const info = document.getElementById('pageInfo');
+const ocrStatus = document.getElementById('ocrStatus');
 
-async function showPage() {
+async function extractText() {
   if (!pdf) return;
 
-  speechSynthesis.cancel();
-  status.textContent = 'جاري استخراج النص...';
-  text.value = '';
+  const p = await pdf.getPage(page);
+  const data = await p.getTextContent();
 
-  try {
-    const p = await pdf.getPage(page);
-    const data = await p.getTextContent();
+  textBox.value = data.items
+    .map(item => item.str)
+    .filter(Boolean)
+    .join(' ');
 
-    text.value = data.items
-  .map(item => item.str)
-  .join(' ')
-  .replace(/[\u200e\u200f]/g, '');
-
-    if (text.value.trim()) {
-      status.textContent = 'تم استخراج النص بنجاح';
-    } else {
-      status.textContent =
-        'لا يوجد نص قابل للاستخراج. قد تكون الصفحة مصورة.';
-    }
-
-    info.textContent =
-      'الصفحة ' + page + ' من ' + pdf.numPages;
-
-  } catch(error) {
-    status.textContent = 'حدث خطأ أثناء قراءة الصفحة';
-  }
+  updatePageInfo();
 }
 
-file.addEventListener('change', async function(e) {
-  const selected = e.target.files[0];
-  if (!selected) return;
+function updatePageInfo() {
+  document.getElementById('pageInfo').textContent =
+    'الصفحة ' + page + ' من ' + pdf.numPages;
+}
 
-  status.textContent = 'جاري فتح الملف...';
+document.getElementById('file').onchange = async function() {
+  const file = this.files[0];
+  if (!file) return;
 
   try {
-    const buffer = await selected.arrayBuffer();
+    status.textContent = 'جاري فتح الملف...';
+
+    const buffer = await file.arrayBuffer();
 
     pdf = await pdfjsLib.getDocument({
       data: new Uint8Array(buffer)
     }).promise;
 
     page = 1;
-    await showPage();
+    await extractText();
 
-  } catch(error) {
-    status.textContent =
-      'تعذر فتح الملف. جرب ملف PDF آخر.';
+    status.textContent = 'تم فتح الملف بنجاح';
+  } catch (error) {
+    status.textContent = 'حدث خطأ في فتح الملف';
+    console.error(error);
   }
-});
+};
 
-document.getElementById('next').onclick = async () => {
+document.getElementById('extract').onclick = async function() {
+  try {
+    await extractText();
+    status.textContent = 'تم استخراج النص';
+  } catch (error) {
+    status.textContent = 'تعذر استخراج النص';
+  }
+};
+
+document.getElementById('next').onclick = async function() {
   if (pdf && page < pdf.numPages) {
     page++;
-    await showPage();
+    await extractText();
   }
 };
 
-document.getElementById('previous').onclick = async () => {
+document.getElementById('previous').onclick = async function() {
   if (pdf && page > 1) {
     page--;
-    await showPage();
+    await extractText();
   }
 };
 
-document.getElementById('read').onclick = () => {
-  const value = text.value.trim();
+// OCR: قراءة الصفحة المصورة
+document.getElementById('ocr').onclick = async function() {
+  if (!pdf) {
+    alert('اختر ملف PDF أولاً');
+    return;
+  }
+
+  try {
+    ocrStatus.textContent = 'جاري تجهيز الصفحة...';
+
+    const p = await pdf.getPage(page);
+    const viewport = p.getViewport({ scale: 2 });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await p.render({
+      canvasContext: context,
+      viewport: viewport
+    }).promise;
+
+    ocrStatus.textContent = 'جاري تحميل محرك التعرف على النص...';
+
+    if (!ocrWorker) {
+      ocrWorker = await Tesseract.createWorker(
+        'ara+eng',
+        1,
+        {
+          logger: function(info) {
+            if (info.status) {
+              ocrStatus.textContent = info.status;
+            }
+          }
+        }
+      );
+    }
+
+    ocrStatus.textContent = 'جاري التعرف على النص...';
+
+    const result = await ocrWorker.recognize(canvas);
+
+    textBox.value = result.data.text;
+    ocrStatus.textContent = 'تم استخراج النص من الصورة';
+
+  } catch (error) {
+    ocrStatus.textContent = 'حدث خطأ أثناء OCR';
+    console.error(error);
+  }
+};
+
+// القراءة الصوتية
+function readText() {
+  const value = textBox.value.trim();
 
   if (!value) {
-    status.textContent = 'لا يوجد نص للقراءة';
+    alert('لا يوجد نص للقراءة');
     return;
   }
 
   speechSynthesis.cancel();
 
   const speech = new SpeechSynthesisUtterance(value);
-  speech.lang = document.getElementById('lang').value;
-  speech.rate = Number(
-    document.getElementById('speed').value
+  const voices = speechSynthesis.getVoices();
+  const lang = document.getElementById('language').value;
+
+  speech.lang = lang;
+
+  const voice = voices.find(v =>
+    v.lang.toLowerCase().startsWith(lang.substring(0, 2).toLowerCase())
   );
 
+  if (voice) speech.voice = voice;
+
+  speech.rate = Number(document.getElementById('speed').value);
+
+  speech.onstart = function() {
+    status.textContent = 'جاري القراءة...';
+  };
+
+  speech.onend = function() {
+    status.textContent = 'انتهت القراءة';
+  };
+
+  speech.onerror = function() {
+    status.textContent = 'حدث خطأ في الصوت';
+  };
+
   speechSynthesis.speak(speech);
-};
+}
 
-document.getElementById('pause').onclick = () => {
+document.getElementById('read').onclick = readText;
+
+document.getElementById('pause').onclick = function() {
   speechSynthesis.pause();
+  status.textContent = 'تم إيقاف القراءة مؤقتاً';
 };
 
-document.getElementById('resume').onclick = () => {
+document.getElementById('resume').onclick = function() {
   speechSynthesis.resume();
+  status.textContent = 'تم استكمال القراءة';
 };
 
-document.getElementById('stop').onclick = () => {
+document.getElementById('stop').onclick = function() {
   speechSynthesis.cancel();
+  status.textContent = 'تم إيقاف القراءة';
+};
+
+// تغيير لغة الواجهة
+document.getElementById('interfaceLanguage').onchange = function() {
+  const english = this.value === 'en';
+  document.documentElement.lang = english ? 'en' : 'ar';
+  document.documentElement.dir = english ? 'ltr' : 'rtl';
+
+  document.querySelector('h1').textContent =
+    english ? 'PDF Voice Reader' : '📖 PDF Voice Reader';
+
+  document.querySelector('label[for="file"]');
 };
 </script>
 
